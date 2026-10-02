@@ -1,0 +1,28 @@
+# Secrets / live session state — never commit
+**/_state/
+**/cookies.json
+**/storage_state.json
+**/shots/
+**/cache/
+.env
+.env.*
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*~
+.vscode/
+.idea/
+
+# Logs / temp
+*.log
+/tmp/

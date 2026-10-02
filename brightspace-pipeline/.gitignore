@@ -1,0 +1,7 @@
+# Live session + browser profile: never commit these.
+_state/cookies.json
+_state/storage_state.json
+_state/shots/
+_state/cache/
+__pycache__/
+*.pyc

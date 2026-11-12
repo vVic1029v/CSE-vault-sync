@@ -267,13 +267,13 @@ def main(argv=None):
     def due_le(t, days):
         return t["due"] is not None and t["due"] <= today + timedelta(days=days)
 
-    study = sorted([t for t in open_t if "study" in t["tags"] and due_le(t, 3)],
+    study = sorted([t for t in open_t if "study" in t["tags"] and due_le(t, 7)],
                    key=lambda t: t["due"])
-    exams = sorted([t for t in open_t if "exam" in t["tags"] and due_le(t, 7)],
+    exams = sorted([t for t in open_t if "exam" in t["tags"] and due_le(t, 30)],
                    key=lambda t: t["due"])
-    project = sorted([t for t in open_t if "project" in t["tags"]],
+    project = sorted([t for t in open_t if "project" in t["tags"] and due_le(t, 30)],
                      key=lambda t: t["due"] or FAR_FUTURE)[:3]
-    life = sorted([t for t in open_t if not is_core(t) and due_le(t, 1)],
+    life = sorted([t for t in open_t if not is_core(t) and due_le(t, 2)],
                   key=lambda t: t["due"])
     overdue = sorted([t for t in open_t if t["due"] and t["due"] < today],
                      key=lambda t: t["due"])
@@ -332,10 +332,10 @@ def main(argv=None):
     L.append("> Generated file — do not hand-edit. Regenerate with "
              "`python3 ~/Projects/CSE-vault-sync/agent-summary.py`.")
     L.append("")
-    section(L, "📚 STUDY — urgent (due ≤ 72h)", [fmt_task(t) for t in study])
-    section(L, "🎓 EXAMS — ≤ 7 days", [fmt_task(t) for t in exams])
-    section(L, "🛠️ PROJECT — next", [fmt_task(t) for t in project])
-    section(L, "🏠 LIFE — urgent (due ≤ 24h)", [fmt_task(t) for t in life])
+    section(L, "📚 STUDY — urgent (due ≤ 7 days)", [fmt_task(t) for t in study])
+    section(L, "🎓 EXAMS — ≤ 30 days", [fmt_task(t) for t in exams])
+    section(L, "🛠️ PROJECT — ≤ 30 days", [fmt_task(t) for t in project])
+    section(L, "🏠 LIFE — urgent (due ≤ 48h)", [fmt_task(t) for t in life])
     section(L, "🔴 Overdue", [fmt_task(t) for t in overdue])
     section(L, "📅 Due today", [fmt_task(t) for t in due_today])
     section(L, "📥 No due date", [fmt_task(t) for t in nodate])

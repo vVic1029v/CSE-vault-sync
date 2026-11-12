@@ -125,7 +125,8 @@ def emit_extras(vcourse, vname, code, cdir, kids, virt_folder=False):
     return kids
 
 
-def emit_course(raw, vault, code, used, logfile=None, virt_folder=False):
+def emit_course(raw, vault, code, used, logfile=None, virt_folder=False,
+                sanitize_links=True):
     """Build one course folder. Returns (code, vname, entries, files) or None."""
     from .notes import EmitCtx
     cdir = raw / code
@@ -154,7 +155,8 @@ def emit_course(raw, vault, code, used, logfile=None, virt_folder=False):
     top_stem = course_vault_link(vault.name)
     kept = copy_course_files(root, cdir, vcourse, used)
     ctx = EmitCtx(vault=vault, vcourse=vcourse, raw_cdir=cdir,
-                  code=code, cid=cid, used=used, virt_folder=virt_folder)
+                  code=code, cid=cid, used=used, virt_folder=virt_folder,
+                  sanitize_links=sanitize_links)
     kids = emit_level(ctx, vcourse, course_home, root)
     kids = emit_extras(vcourse, vcourse.name, code, cdir, kids, virt_folder)
     if not kids:
@@ -167,7 +169,8 @@ def emit_course(raw, vault, code, used, logfile=None, virt_folder=False):
            if virt_folder else "")
     write_moc_note(vcourse / f"{vcourse.name}.md",
                    info.get("name", code) or code,
-                   top_stem, cid, code, hub, kids, virt_folder)
+                   top_stem, cid, code, hub, kids, virt_folder,
+                   sanitize_links)
     n_files = sum(1 for _ in vcourse.rglob("*")
                   if _.is_file() and _.suffix != ".md")
     return code, vcourse.name, len(kids), n_files, kept
@@ -225,7 +228,7 @@ def prune_orphans(vault, logfile=None):
 
 
 def build_vault(paths, logfile, exclude=(), read_only=False,
-                virt_folder=False, virt_root=None):
+                virt_folder=False, virt_root=None, sanitize_links=True):
     """Compose the full vault build; return [(code, vname, entries, files)]."""
     from pathlib import Path
     raw, vault = paths.raw, paths.vault
@@ -239,7 +242,8 @@ def build_vault(paths, logfile, exclude=(), read_only=False,
             continue
         if not (raw / code).is_dir():
             continue
-        result = emit_course(raw, vault, code, used, logfile, virt_folder)
+        result = emit_course(raw, vault, code, used, logfile, virt_folder,
+                             sanitize_links)
         if result is None:
             continue
         code, vname, entries, files, kept = result

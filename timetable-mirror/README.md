@@ -3,7 +3,8 @@
 MyTimetable (TU Delft, TimeEdit ICS) → Obsidian `Timetable/` notes.
 One note per class instance in a rolling window, with Full-Calendar
 frontmatter (`title/date/startTime/endTime`) plus Dataview fields
-(`course/room/kind`) and smart links (course note, same-date lecture note).
+(`course/room/kind`) and smart links (course hub, notebook, Brightspace page,
+same-date lecture note).
 
 Prefer the transactional wrapper `../sync.sh` (checkpoint → run all three
 mirrors → review → confirm/rollback); the commands below are for
@@ -36,9 +37,10 @@ anything else (calendar drags are reverted too).
 - Course: `DESCRIPTION` → `Course code: X`, else `SUMMARY` prefix (`CSE11A`);
   linked to the vault-side `Courses/<Brightspace-dir>` hub (one per
   `/`-separated part).
-- Lecture note: the user's own course note's tree-children ending
-  ` - YYYY-MM-DD.md` whose date equals the instance date (linked, never
-  used as the course link).
+- Lecture note: the user's own course note's tree-children shaped
+  `<course> - YYYY-MM-DD` (optional ` - custom title` suffix allowed)
+  whose date equals the instance date (linked, never used as the
+  course link).
 - Times: feed is UTC; converted to Europe/Amsterdam. Cancelled and
   all-day entries are skipped.
 

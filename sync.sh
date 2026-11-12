@@ -25,10 +25,11 @@ set -euo pipefail
 SYNC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BS_DIR="$SYNC_DIR/brightspace-pipeline"
 TT_DIR="$SYNC_DIR/timetable-mirror"
-BS_CACHE="$BS_DIR/_state/cache/raw"
+CACHE_ROOT="$BS_DIR/_state/cache"   # per-user namespaces live underneath
 
 VAULT="$HOME/Documents/OBSIDIAN/holanda"
-CACHED=0; YES=0; NO_COMMIT=0
+CACHED=0; YES=0; NO_COMMIT=0; NO_SANITIZE=0
+CACHE_DIR_ARG=""
 SKIP_BS=0; SKIP_TT=0; SKIP_CO=0; SKIP_SU=0
 BS_NETID_ARG=""; BS_PASSWORD_ARG=""; TT_URL_ARG=""
 DAYS_PAST=""; DAYS_FUTURE=""
@@ -55,10 +56,16 @@ Usage: sync.sh [options]
 
 Universal transactional sync (Brightspace + Timetable + Courses).
 Default: sync from source (prompts for credentials + ICS URL).
-  --cached             rebuild from local cache, no network, no prompts
-                       (Brightspace uses --stage vault; Timetable is skipped
-                       unless --timetable-url is given; Courses always run)
+  --cached             rebuild from local cache, no network (asks whose
+                       cache: pass --as, else an interactive NetID prompt;
+                       Timetable is skipped unless --timetable-url is given;
+                       Courses always run)
   --vault DIR          Obsidian vault (default: ~/Documents/OBSIDIAN/holanda)
+  --as NETID           Brightspace owner of this run (same as --bs-netid;
+                       selects the per-user download cache; required for
+                       --cached since it never prompts otherwise)
+  --cache-dir DIR      Brightspace download cache (default: per-user dir
+                       under brightspace-pipeline/_state/cache/by-user/)
   --exclude REGEX      skip Brightspace courses by RAW code, e.g. 'CSE000'
                        (matches 'CSE000+2026+1', not display names; repeatable)
   --days-past N        Timetable window behind today (default 14)
@@ -72,6 +79,9 @@ Default: sync from source (prompts for credentials + ICS URL).
   --skip-summary       skip the dashboard refresh stage (AGENT-SUMMARY.md + Habits.md)
   --yes                accept the review default without asking
   --no-commit          apply + show review, but leave everything uncommitted
+  --no-sanitize        keep malformed Brightspace links verbatim (escape
+                       brackets) instead of converting [[label](url)] to
+                       [label](url)
   -h, --help           this text
 
 Secrets are exported only to the child generator processes (never logged).
@@ -89,6 +99,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --cached) CACHED=1; shift ;;
         --vault) VAULT="$2"; shift 2 ;;
+        --as) BS_NETID_ARG="$2"; shift 2 ;;
+        --cache-dir) CACHE_DIR_ARG="$2"; shift 2 ;;
         --exclude) EXCLUDES+=("$2"); shift 2 ;;
         --days-past) DAYS_PAST="$2"; shift 2 ;;
         --days-future) DAYS_FUTURE="$2"; shift 2 ;;
@@ -101,6 +113,7 @@ while [[ $# -gt 0 ]]; do
         --skip-summary) SKIP_SU=1; shift ;;
         --yes) YES=1; shift ;;
         --no-commit) NO_COMMIT=1; shift ;;
+        --no-sanitize) NO_SANITIZE=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "error: unknown flag $1 (see --help)" >&2; exit 1 ;;
     esac
@@ -109,6 +122,24 @@ done
 if [[ ! -d "$VAULT/.git" ]]; then
     echo "error: $VAULT is not a git repo — the transaction needs git" >&2
     exit 1
+fi
+
+# ----------------------------------------------- Brightspace cache owner ---
+# Incident 2026-10-08: one shared download cache merged two users' courses
+# into both vaults (vault builds enumerate every cached course dir). The
+# cache is therefore keyed per Brightspace user (NetID): the same person
+# syncing two vaults shares one cache, a different person gets their own,
+# and a run for person B can never pick up person A's courses.
+# --cache-dir overrides the keyed default (e.g. to share deliberately).
+if [[ "$CACHED" -eq 1 && "$SKIP_BS" -eq 0 && -z "${BS_NETID_ARG:-}" && -z "${BS_NETID:-}" ]]; then
+    # Cached runs never prompt for credentials — but the owner selects
+    # the cache, so always ask (decision 2026-10-08). A failed/empty read
+    # (closed stdin, /dev/null) falls through to the --as error below.
+    read -rp "Cache owner NetID (--as to skip this): " BS_NETID_ARG || true
+    if [[ -z "${BS_NETID_ARG:-}" ]]; then
+        echo "error: --cached needs to know whose cache: pass --as NETID" >&2
+        exit 1
+    fi
 fi
 
 # ---------------------------------------------------------------- secrets ---
@@ -150,6 +181,29 @@ else
     elif [[ -n "$TT_URL_ARG" ]]; then
         export TIMETABLE_ICS_URL="$TT_URL_ARG"
     fi
+fi
+
+# Key the cache now that the owner is resolved (online: secrets section
+# exported BS_NETID from prompt/args; cached: resolved above). Fail loud
+# on empty — an unkeyed run must never touch the shared default again.
+# (Skipped Brightspace needs no owner and no cache at all.)
+if [[ "$SKIP_BS" -eq 0 ]]; then
+    OWNER="${BS_NETID_ARG:-${BS_NETID:-}}"
+    if [[ -z "$OWNER" ]]; then
+        echo "error: no Brightspace NetID resolved — pass --as NETID" >&2
+        exit 1
+    fi
+    OWNER_SAN="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]' \
+        | tr -c '[:alnum:]._-' '_')"
+    if [[ -n "$CACHE_DIR_ARG" ]]; then
+        BS_CACHE_DIR="$CACHE_DIR_ARG"
+    else
+        BS_CACHE_DIR="$CACHE_ROOT/by-user/$OWNER_SAN"
+    fi
+    BS_CACHE="$BS_CACHE_DIR/raw"   # raw API clone + _meta (what main.py builds)
+    export BS_NETID="$OWNER"       # pipeline login guard checks against this
+else
+    BS_CACHE_DIR=""; BS_CACHE=""
 fi
 
 # --------------------------------------------------------------- checkpoint --
@@ -221,13 +275,17 @@ fail=0
 
 if [[ "$SKIP_BS" -eq 0 ]]; then
     STAGES_RUN+=("brightspace")
-    BS_ARGS=(-o "$VAULT/Brightspace" --read-only --virt-folder --virt-root '! Index')
+    BS_ARGS=(-o "$VAULT/Brightspace" --read-only --virt-folder --virt-root '! Index'
+             --cache-dir "$BS_CACHE_DIR" --cookies "$BS_CACHE_DIR/cookies.json")
     if [[ "$CACHED" -eq 1 ]]; then
         BS_ARGS+=(--stage vault --selftest)   # stage vault skips selftest unless asked
     fi
     for rx in ${EXCLUDES[@]+"${EXCLUDES[@]}"}; do
         BS_ARGS+=(--exclude "$rx")
     done
+    if [[ "$NO_SANITIZE" -eq 1 ]]; then
+        BS_ARGS+=(--no-sanitize)
+    fi
     sec "=== STAGE brightspace ==="
     if ! python3 "$BS_DIR/main.py" "${BS_ARGS[@]}" 2>&1 | tee -a "$LOG"; then
         warn "ERROR: brightspace stage failed — rolling back" >&2

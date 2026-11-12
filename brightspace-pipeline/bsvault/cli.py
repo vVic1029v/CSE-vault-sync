@@ -54,6 +54,10 @@ def build_parser():
                          "the output folder) under this vault-side note "
                          "(e.g. '! Index') so the whole "
                          "tree has a single root")
+    ap.add_argument("--no-sanitize", action="store_true",
+                    help="keep malformed Brightspace links verbatim instead "
+                         "of converting [[label](url)] to [label](url); "
+                         "brackets are escaped so they stay literal")
     return ap
 
 
@@ -108,7 +112,8 @@ def main(argv=None):
     if args.stage in ("all", "vault"):
         run_vault(paths, logfile, exclude=args.exclude,
                   read_only=args.read_only, virt_folder=args.virt_folder,
-                  virt_root=args.virt_root)
+                  virt_root=args.virt_root,
+                  sanitize_links=not args.no_sanitize)
     if args.selftest or args.stage == "all":
         if not report_selftest(paths.vault):
             sys.exit(1)

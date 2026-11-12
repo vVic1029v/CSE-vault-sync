@@ -24,9 +24,15 @@ TAG_RE = re.compile(r"#([A-Za-z][\w-]*)")
 DUE_RE = re.compile(r"📅\s*(\d{4}-\d{2}-\d{2})")
 EST_RE = re.compile(r"\[est::\s*([^\]]+)\]")
 NOTES_RE = re.compile(r"^## Notes\s*$", re.M)
+COMMENT_RE = re.compile(r"%%.*?(?:%%|$)|<!--.*?(?:-->|$)", re.S)
 FAR_FUTURE = date(2999, 1, 1)
 HABIT_TAG = "study"
 HABIT_WEEKS = 12
+
+
+def strip_comments(text):
+    """Remove Obsidian (%%…%%) and HTML (<!--…-->) comment blocks."""
+    return COMMENT_RE.sub("", text)
 
 
 def parse_tasks(daily_dir):
@@ -36,7 +42,7 @@ def parse_tasks(daily_dir):
         return open_tasks, done
     for p in sorted(daily_dir.glob("*.md")):
         try:
-            text = p.read_text(encoding="utf-8")
+            text = strip_comments(p.read_text(encoding="utf-8"))
         except OSError:
             continue
         for line in text.splitlines():
@@ -110,6 +116,7 @@ def parse_timetable(tt_dir):
 
 def notes_body(text):
     """Last ## Notes section body ('' when absent/empty)."""
+    text = strip_comments(text)
     idx = [m.start() for m in NOTES_RE.finditer(text)]
     if not idx:
         return ""
@@ -175,7 +182,7 @@ def habit_counts(daily_dir, tag=HABIT_TAG):
     for p in daily_dir.glob("*.md"):
         try:
             day = datetime.strptime(p.stem, "%Y-%m-%d").date()
-            text = p.read_text(encoding="utf-8")
+            text = strip_comments(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         n = 0

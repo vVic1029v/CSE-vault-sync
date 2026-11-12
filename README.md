@@ -24,6 +24,9 @@ One transactional wrapper around all three generators: git checkpoint
 - `--yes` takes the review default without asking (for destructive
   changes the default is *decline* — forcing one requires an interactive
   `y`). `--no-commit` applies everything and leaves it uncommitted.
+- Malformed imported links like `[[PDF](url)]` become normal
+  `[PDF](url)` links. `--no-sanitize` keeps them verbatim but escapes the
+  brackets so they render literally instead of as broken wikilinks.
 
 ## Review model
 

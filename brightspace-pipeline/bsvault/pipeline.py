@@ -19,11 +19,28 @@ from .utils import log, sanitize
 
 
 def ensure_login(paths, netid, password, logfile):
-    """Return a working cookie jar, logging in through the browser if needed."""
+    """Return a working cookie jar, logging in through the browser if needed.
+
+    A live session is reused ONLY when it belongs to the requested NetID
+    (incident 2026-10-08 follow-up: a shared jar once authenticated user
+    B's run as user A). On mismatch the jar is discarded and SSO runs
+    fresh — fail loud, never fetch as the wrong person.
+    """
+    hint = (netid or os.environ.get("BS_NETID") or "").strip()
     cookies = auth.load_cookies(paths.cookies)
-    if auth.session_ok(cookies, LP_VER):
-        log("LOGIN: existing session still valid, skipping browser login", logfile)
-        return cookies
+    profile = auth.session_user(cookies, LP_VER)
+    if profile is not None:
+        who = "%s %s (%s)" % (profile.get("FirstName"),
+                               profile.get("LastName"),
+                               profile.get("UniqueName"))
+        if not hint or auth.identity_matches(hint, profile):
+            log("LOGIN: existing session still valid, skipping browser "
+                "login (%s)" % who, logfile)
+            return cookies
+        log("LOGIN: saved session belongs to %s, but this run is for "
+            "'%s' — discarding it and logging in fresh" % (who, hint),
+            logfile)
+        cookies = None
     netid = netid or os.environ.get("BS_NETID") or input("NetID: ").strip()
     secret = (password or os.environ.get("BS_PASSWORD")
               or getpass.getpass("Password: "))
@@ -72,10 +89,10 @@ def run_sync(api, paths, courses, manifest, manifest_path, logfile):
 
 
 def run_vault(paths, logfile, exclude=(), read_only=False, virt_folder=False,
-              virt_root=None):
+              virt_root=None, sanitize_links=True):
     """Build the vault. Returns [(code, vname, entries, files)]."""
     return vault_mod.build_vault(paths, logfile, exclude, read_only,
-                                 virt_folder, virt_root)
+                                 virt_folder, virt_root, sanitize_links)
 
 
 def report_selftest(vault_dir):

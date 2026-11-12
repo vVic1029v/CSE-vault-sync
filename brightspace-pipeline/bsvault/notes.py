@@ -19,6 +19,28 @@ from .utils import label, sanitize, vrel
 
 TEXT_CAP = 100000  # max extracted chars per note; beyond that, see the file
 
+# Brightspace descriptions sometimes nest a markdown link inside wikilink
+# brackets, e.g. `[[PDF](https://example.org/x.pdf)]`. Obsidian reads the
+# leading `[[PDF]]` as a broken wikilink, so normalize it on the way in.
+_MALFORMED_LINK = re.compile(r"\[\[([^\[\]\n]+?)\]\((.+?)\)\]")
+
+
+def normalize_links(text, convert=True):
+    """Fix malformed `[[label](url)]` links in imported Brightspace text.
+
+    convert=True rewrites them to plain markdown `[label](url)`.
+    convert=False keeps the original text but backslash-escapes the brackets
+    so Obsidian renders it literally instead of as a wikilink.
+    """
+    if not text:
+        return text
+
+    def _replace(m):
+        label_, url = m.group(1), m.group(2)
+        return f"[{label_}]({url})" if convert else f"\\[\\[{label_}\\]({url})\\]"
+
+    return _MALFORMED_LINK.sub(_replace, text)
+
 
 @dataclass
 class EmitCtx:
@@ -30,6 +52,7 @@ class EmitCtx:
     cid: object         # Brightspace org-unit id
     used: dict = field(default_factory=dict)  # note_stem uniqueness state
     virt_folder: bool = False  # also emit VirtFolder `Folders:` parent links
+    sanitize_links: bool = True  # convert malformed [[label](url)] links
 
 
 def course_vault_name(raw_root, code):
@@ -121,7 +144,8 @@ def note_stem(vdir, title, used):
 
 
 def write_moc_note(path, title, up_target, brightspace_id, code,
-                   contents, moc_entries, virt_folder=False):
+                   contents, moc_entries, virt_folder=False,
+                   sanitize_links=True):
     """Write one generated note: frontmatter + # Contents + # MOC.
 
     With virt_folder=True, also emit a VirtFolder `Folders:` parent link
@@ -139,6 +163,7 @@ def write_moc_note(path, title, up_target, brightspace_id, code,
               f"course_code: {code}", f"brightspace_id: {brightspace_id}",
               "---", AUTO_TAG.strip(), "", f"# {label(title)}", "",
               AUTO_START]
+    contents = normalize_links(contents, convert=sanitize_links)
     if (contents or "").strip():
         lines += ["## Contents", "", contents.strip(), ""]
     if moc_entries:
@@ -164,7 +189,8 @@ def emit_topic(ctx, vdir, node, up_target):
             stem = note_stem(vdir, title, ctx.used)
             write_moc_note(vdir / f"{stem}.md", title, up_target,
                            node.get("id", ""), ctx.code, body,
-                           [("file", rel, title)], ctx.virt_folder)
+                           [("file", rel, title)], ctx.virt_folder,
+                           ctx.sanitize_links)
             return ("note", f"{vrel(vdir, ctx.vault)}/{stem}", title)
         return ("file", rel, title)
     if kind == "page":
@@ -180,7 +206,8 @@ def emit_topic(ctx, vdir, node, up_target):
         if full:
             stem = note_stem(vdir, title, ctx.used)
             write_moc_note(vdir / f"{stem}.md", title, up_target,
-                           node.get("id", ""), ctx.code, full, [], ctx.virt_folder)
+                           node.get("id", ""), ctx.code, full, [],
+                           ctx.virt_folder, ctx.sanitize_links)
             return ("note", f"{vrel(vdir, ctx.vault)}/{stem}", title)
         return ("bare", viewer_url(ctx.cid, node.get("id", "")), title)
     if kind == "link":
@@ -188,7 +215,8 @@ def emit_topic(ctx, vdir, node, up_target):
         full = "\n\n".join(p for p in (desc, f"[{label(title)}]({url})") if p)
         stem = note_stem(vdir, title, ctx.used)
         write_moc_note(vdir / f"{stem}.md", title, up_target,
-                       node.get("id", ""), ctx.code, full, [], ctx.virt_folder)
+                       node.get("id", ""), ctx.code, full, [], ctx.virt_folder,
+                       ctx.sanitize_links)
         return ("note", f"{vrel(vdir, ctx.vault)}/{stem}", title)
     # locked / anything else: bare link, no note
     return ("bare", viewer_url(ctx.cid, node.get("id", "")), title)
@@ -210,7 +238,8 @@ def emit_module(ctx, vdir, node, up_target):
     own = f"{vrel(vdir, ctx.vault)}/{stem}"
     kids = emit_level(ctx, subdir, own, children)
     write_moc_note(vdir / f"{stem}.md", title, up_target,
-                   node.get("id", ""), ctx.code, desc, kids, ctx.virt_folder)
+                   node.get("id", ""), ctx.code, desc, kids, ctx.virt_folder,
+                   ctx.sanitize_links)
     return ("note", own, title)
 
 

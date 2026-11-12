@@ -1,7 +1,9 @@
-"""Authentication: cookie jar on disk, session check, SSO browser login.
+"""Authentication: per-user cookie jars on disk, session check, SSO login.
 
-Secrets live in _state/cookies.json (see .gitignore) or env vars — never in
-the vault, never on the command line if you can avoid it.
+Sessions live in the user's cache dir (see --cache-dir/--cookies, default
+_state/cache/by-user/<netid>/cookies.json) — never in the vault, never on
+the command line if you can avoid it. One jar per Brightspace user: a
+stale session from user A must never authenticate a run as user B.
 """
 
 import json
@@ -42,15 +44,36 @@ def build_client(cookies):
 
 def session_ok(cookies, api_version):
     """True when the cookie jar still yields a live Brightspace session."""
+    return session_user(cookies, api_version) is not None
+
+
+def session_user(cookies, api_version):
+    """Return the logged-in user's whoami profile, or None when dead."""
     if not cookies:
-        return False
+        return None
     try:
         with build_client(cookies) as client:
             response = client.get(
                 f"{BASE}/d2l/api/lp/{api_version}/users/whoami", timeout=30)
-            return response.status_code == 200
+            if response.status_code == 200:
+                return response.json()
+            return None
     except Exception:
+        return None
+
+
+def identity_matches(netid, profile):
+    """True when the requested NetID is the profile's owner.
+
+    Accepts the bare NetID or the full email (case-insensitive), since
+    callers only ever have one spelling and whoami reports UniqueName.
+    A mismatch means "wrong person's session" — never authenticate it.
+    """
+    hint = (netid or "").strip().lower()
+    unique = ((profile or {}).get("UniqueName") or "").strip().lower()
+    if not hint or not unique:
         return False
+    return hint == unique or hint == unique.split("@")[0]
 
 
 def _snap(page, shots_dir, name):

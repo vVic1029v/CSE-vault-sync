@@ -147,12 +147,18 @@ def children_of(vault, parent_stem):
 
 
 def lecture_note_for(vault, course_notes, day):
-    """First course child ending ' - YYYY-MM-DD.md' matching day."""
+    """First course child shaped '<course> - <date>( - <title>)?.md' for day.
+
+    Relaxed fit: anything before the first ' - ', a YYYY-MM-DD date
+    between the first and second ' - ', anything (or nothing) after.
+    The course scoping comes from tree position (course children), not
+    the filename — the name only carries the date.
+    """
     for note in course_notes:
         if note is None:
             continue
         for kid in children_of(vault, note.stem):
-            m = re.search(r" - (\d{4}-\d{2}-\d{2})\.md$", kid.name)
+            m = re.search(r"^.+? - (\d{4}-\d{2}-\d{2})( - .*)?\.md$", kid.name)
             if m and m.group(1) == day:
                 return kid
     return None
@@ -218,8 +224,13 @@ def emit(out_dir, vault, start, end, summary, code, kind, room, uid,
     if targets or lecture:
         auto.append("> [!note]- 🔗 Links")
         if targets:
+            dirnames = [t.split("/", 1)[1] for t, _ in targets]
             auto.append("> - Course: " + " · ".join(f"[[{t}]]"
                                                     for t, _ in targets))
+            auto.append("> - Notebook: " + " · ".join(
+                f"[[Courses/{d} Notebook|📓 {d} Notebook]]" for d in dirnames))
+            auto.append("> - Brightspace: " + " · ".join(
+                f"[[Brightspace/{d}/{d}]]" for d in dirnames))
         if lecture:
             auto.append(f"> - Lecture notes: [[{lecture.stem}]]")
         elif targets:
